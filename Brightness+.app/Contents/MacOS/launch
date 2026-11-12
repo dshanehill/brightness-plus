@@ -1,0 +1,26 @@
+#!/bin/bash
+# Brightness+ launcher: builds the app the first time (or after the source changes), then runs it.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Build for Apple Silicon when the Mac has it (the launcher itself may run under Rosetta).
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then ARCH=arm64; else ARCH=x86_64; fi
+RES="$HERE/../Resources"
+BIN="$HERE/BrightnessPlus"
+LOG="$HOME/Library/Logs/Brightness+.log"
+HASH="$ARCH-sig2-$(/sbin/md5 -q "$RES/main.swift")"
+if [ ! -x "$BIN" ] || [ "$(cat "$RES/.build-hash" 2>/dev/null)" != "$HASH" ]; then
+  echo "$(date '+%F %T') building…" > "$RES/build.log"
+  if ! /usr/bin/xcrun swiftc -O -swift-version 5 -target "$ARCH-apple-macos13.0" \
+        "$RES/main.swift" -o "$BIN.new" \
+        -framework AppKit -framework SwiftUI -framework IOKit -framework ServiceManagement \
+        -framework ApplicationServices -framework CoreGraphics >> "$RES/build.log" 2>&1; then
+    cat "$RES/build.log" >> "$LOG"
+    /usr/bin/osascript -e 'display alert "Brightness+ could not start" message "The build failed. Details are in Logs › Brightness+.log."' >/dev/null 2>&1
+    exit 1
+  fi
+  mv -f "$BIN.new" "$BIN"
+  /usr/bin/codesign --force --sign - --identifier local.shane.BrightnessPlus -r='designated => identifier "local.shane.BrightnessPlus"' "$BIN" >> "$RES/build.log" 2>&1 || true
+  echo "$HASH" > "$RES/.build-hash"
+  echo "$(date '+%F %T') build done" >> "$RES/build.log"
+  cat "$RES/build.log" >> "$LOG"
+fi
+exec /usr/bin/arch -$ARCH "$BIN" "$@"
