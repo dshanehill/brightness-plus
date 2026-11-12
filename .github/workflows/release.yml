@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Draw the icon
+        run: |
+          pip install --quiet pillow
+          python3 tools/make_icons.py
+
+      - name: Save the icon to the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Brightness+.app/Contents/Resources/AppIcon.icns" docs/icon.png
+          git diff --cached --quiet || (git commit -m "Update icon" && git push)
+
+      - name: Package the app
+        run: |
+          chmod +x "Brightness+.app/Contents/MacOS/launch"
+          zip -r -X "Brightness+.zip" "Brightness+.app"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -A1 CFBundleShortVersionString "Brightness+.app/Contents/Info.plist" | tail -1 | sed -E 's/.*<string>(.*)<\/string>.*/\1/')
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "Brightness+.zip" --clobber
+          else
+            gh release create "$TAG" "Brightness+.zip" --title "Brightness+ $VERSION" \
+              --notes "Download **Brightness+.zip**, unzip it, and move **Brightness+.app** into your Applications folder. See the README for setup."
+          fi
